@@ -1,4 +1,4 @@
-// dear imgui, v1.92.0 WIP
+// dear imgui, v1.92.1 WIP
 // (drawing and font code)
 
 /*
@@ -701,6 +701,7 @@ void ImDrawList::_SetTexture(ImTextureRef tex_ref)
     if (_CmdHeader.TexRef == tex_ref)
         return;
     _CmdHeader.TexRef = tex_ref;
+    _TextureStack.back() = tex_ref;
     _OnChangedTexture();
 }
 
@@ -2700,10 +2701,11 @@ void ImFontAtlas::ClearFonts()
     Fonts.clear_delete();
     TexIsBuilt = false;
     for (ImDrawListSharedData* shared_data : DrawListSharedDatas)
-    {
-        shared_data->Font = NULL;
-        shared_data->FontScale = shared_data->FontSize = 0.0f;
-    }
+        if (shared_data->FontAtlas == this)
+        {
+            shared_data->Font = NULL;
+            shared_data->FontScale = shared_data->FontSize = 0.0f;
+        }
 }
 
 static void ImFontAtlasBuildUpdateRendererHasTexturesFromContext(ImFontAtlas* atlas)
@@ -2722,12 +2724,13 @@ static void ImFontAtlasBuildUpdateRendererHasTexturesFromContext(ImFontAtlas* at
 }
 
 // Called by NewFrame() for atlases owned by a context.
-// If you manually manage font atlases, you'll need to call this yourself + ensure atlas->RendererHasTextures is set.
-// 'frame_count' needs to be provided because we can gc/prioritize baked fonts based on their age.
-// 'frame_count' may not match those of imgui contexts using this atlas, as contexts may be updated as different frequencies.
-void ImFontAtlasUpdateNewFrame(ImFontAtlas* atlas, int frame_count)
+// If you manually manage font atlases, you'll need to call this yourself.
+// - 'frame_count' needs to be provided because we can gc/prioritize baked fonts based on their age.
+// - 'frame_count' may not match those of all imgui contexts using this atlas, as contexts may be updated as different frequencies. But generally you can use ImGui::GetFrameCount() on one of your context.
+void ImFontAtlasUpdateNewFrame(ImFontAtlas* atlas, int frame_count, bool renderer_has_textures)
 {
-    IM_ASSERT(atlas->Builder == NULL || atlas->Builder->FrameCount < frame_count); // Protection against being called twice?
+    IM_ASSERT(atlas->Builder == NULL || atlas->Builder->FrameCount < frame_count); // Protection against being called twice.
+    atlas->RendererHasTextures = renderer_has_textures;
 
     // Check that font atlas was built or backend support texture reload in which case we can build now
     if (atlas->RendererHasTextures)
@@ -2866,7 +2869,7 @@ void ImFontAtlasTextureBlockPostProcess(ImFontAtlasPostProcessData* data)
 
 void ImFontAtlasTextureBlockPostProcessMultiply(ImFontAtlasPostProcessData* data, float multiply_factor)
 {
-    unsigned char* pixels = data->Pixels;
+    unsigned char* pixels = (unsigned char*)data->Pixels;
     int pitch = data->Pitch;
     if (data->Format == ImTextureFormat_Alpha8)
     {
@@ -3105,7 +3108,7 @@ ImFont* ImFontAtlas::AddFontDefault(const ImFontConfig* font_cfg_template)
     if (font_cfg.Name[0] == '\0')
         ImFormatString(font_cfg.Name, IM_ARRAYSIZE(font_cfg.Name), "ProggyClean.ttf");
     font_cfg.EllipsisChar = (ImWchar)0x0085;
-    font_cfg.GlyphOffset.y = 1.0f * IM_TRUNC(font_cfg.SizePixels / 13.0f);  // Add +1 offset per 13 units
+    font_cfg.GlyphOffset.y += 1.0f * IM_TRUNC(font_cfg.SizePixels / 13.0f);  // Add +1 offset per 13 units
 
     int ttf_compressed_size = 0;
     const char* ttf_compressed = GetDefaultCompressedFontDataTTF(&ttf_compressed_size);
@@ -3451,7 +3454,7 @@ void ImFontAtlasBuildRenderBitmapFromString(ImFontAtlas* atlas, int x, int y, in
     {
     case ImTextureFormat_Alpha8:
     {
-        ImU8* out_p = tex->GetPixelsAt(x, y);
+        ImU8* out_p = (ImU8*)tex->GetPixelsAt(x, y);
         for (int off_y = 0; off_y < h; off_y++, out_p += tex->Width, in_str += w)
             for (int off_x = 0; off_x < w; off_x++)
                 out_p[off_x] = (in_str[off_x] == in_marker_char) ? 0xFF : 0x00;
@@ -3459,7 +3462,7 @@ void ImFontAtlasBuildRenderBitmapFromString(ImFontAtlas* atlas, int x, int y, in
     }
     case ImTextureFormat_RGBA32:
     {
-        ImU32* out_p = (ImU32*)(void*)tex->GetPixelsAt(x, y);
+        ImU32* out_p = (ImU32*)tex->GetPixelsAt(x, y);
         for (int off_y = 0; off_y < h; off_y++, out_p += tex->Width, in_str += w)
             for (int off_x = 0; off_x < w; off_x++)
                 out_p[off_x] = (in_str[off_x] == in_marker_char) ? IM_COL32_WHITE : IM_COL32_BLACK_TRANS;
@@ -3919,10 +3922,11 @@ void ImFontAtlasUpdateDrawListsTextures(ImFontAtlas* atlas, ImTextureRef old_tex
 void ImFontAtlasUpdateDrawListsSharedData(ImFontAtlas* atlas)
 {
     for (ImDrawListSharedData* shared_data : atlas->DrawListSharedDatas)
-    {
-        shared_data->TexUvWhitePixel = atlas->TexUvWhitePixel;
-        shared_data->TexUvLines = atlas->TexUvLines;
-    }
+        if (shared_data->FontAtlas == atlas)
+        {
+            shared_data->TexUvWhitePixel = atlas->TexUvWhitePixel;
+            shared_data->TexUvLines = atlas->TexUvLines;
+        }
 }
 
 // Set current texture. This is mostly called from AddTexture() + to handle a failed resize.
@@ -5126,7 +5130,7 @@ void ImFontAtlasBakedSetFontGlyphBitmap(ImFontAtlas* atlas, ImFontBaked* baked, 
 {
     ImTextureData* tex = atlas->TexData;
     IM_ASSERT(r->x + r->w <= tex->Width && r->y + r->h <= tex->Height);
-    ImFontAtlasTextureBlockConvert(src_pixels, src_fmt, src_pitch, tex->GetPixelsAt(r->x, r->y), tex->Format, tex->GetPitch(), r->w, r->h);
+    ImFontAtlasTextureBlockConvert(src_pixels, src_fmt, src_pitch, (unsigned char*)tex->GetPixelsAt(r->x, r->y), tex->Format, tex->GetPitch(), r->w, r->h);
     ImFontAtlasPostProcessData pp_data = { atlas, baked->ContainerFont, src, baked, glyph, tex->GetPixelsAt(r->x, r->y), tex->Format, tex->GetPitch(), r->w, r->h };
     ImFontAtlasTextureBlockPostProcess(&pp_data);
     ImFontAtlasTextureBlockQueueUpload(atlas, tex, r->x, r->y, r->w, r->h);
@@ -5229,7 +5233,7 @@ ImFontBaked* ImFont::GetFontBaked(float size, float density)
     ImFontBaked* baked = LastBaked;
 
     // Round font size
-    // - ImGui::PushFontSize() will already round, but other paths calling GetFontBaked() directly also needs it (e.g. ImFontAtlasBuildPreloadAllGlyphRanges)
+    // - ImGui::PushFont() will already round, but other paths calling GetFontBaked() directly also needs it (e.g. ImFontAtlasBuildPreloadAllGlyphRanges)
     size = ImGui::GetRoundedFontSize(size);
 
     if (density < 0.0f)
@@ -5583,7 +5587,6 @@ begin:
         return;
 
     // Reserve vertices for remaining worse case (over-reserving is useful and easily amortized)
-    const int cmd_count = draw_list->CmdBuffer.Size;
     const int vtx_count_max = (int)(text_end - s) * 4;
     const int idx_count_max = (int)(text_end - s) * 6;
     const int idx_expected_size = draw_list->IdxBuffer.Size + idx_count_max;
@@ -5591,6 +5594,7 @@ begin:
     ImDrawVert*  vtx_write = draw_list->_VtxWritePtr;
     ImDrawIdx*   idx_write = draw_list->_IdxWritePtr;
     unsigned int vtx_index = draw_list->_VtxCurrentIdx;
+    const int cmd_count = draw_list->CmdBuffer.Size;
 
     const ImU32 col_untinted = col | ~IM_COL32_A_MASK;
     const char* word_wrap_eol = NULL;
@@ -5707,12 +5711,14 @@ begin:
     }
 
     // Edge case: calling RenderText() with unloaded glyphs triggering texture change. It doesn't happen via ImGui:: calls because CalcTextSize() is always used.
-    if (cmd_count != draw_list->CmdBuffer.Size)
+    if (cmd_count != draw_list->CmdBuffer.Size) //-V547
     {
         IM_ASSERT(draw_list->CmdBuffer[draw_list->CmdBuffer.Size - 1].ElemCount == 0);
         draw_list->CmdBuffer.pop_back();
         draw_list->PrimUnreserve(idx_count_max, vtx_count_max);
         draw_list->AddDrawCmd();
+        //IMGUI_DEBUG_LOG("RenderText: cancel and retry to missing glyphs.\n"); // [DEBUG]
+        //draw_list->AddRectFilled(pos, pos + ImVec2(10, 10), IM_COL32(255, 0, 0, 255)); // [DEBUG]
         goto begin;
         //RenderText(draw_list, size, pos, col, clip_rect, text_begin, text_end, wrap_width, cpu_fine_clip); // FIXME-OPT: Would a 'goto begin' be better for code-gen?
         //return;

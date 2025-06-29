@@ -1,4 +1,4 @@
-// dear imgui, v1.92.0 WIP
+// dear imgui, v1.92.1 WIP
 // (main code and documentation)
 
 // Help:
@@ -21,9 +21,10 @@
 // - Issues & support ........... https://github.com/ocornut/imgui/issues
 // - Test Engine & Automation ... https://github.com/ocornut/imgui_test_engine (test suite, test engine to automate your apps)
 
-// For first-time users having issues compiling/linking/running/loading fonts:
+// For first-time users having issues compiling/linking/running:
 // please post in https://github.com/ocornut/imgui/discussions if you cannot find a solution in resources above.
 // Everything else should be asked in 'Issues'! We are building a database of cross-linked knowledge there.
+// Since 1.92, we encourage font loading question to also be posted in 'Issues'.
 
 // Copyright (c) 2014-2025 Omar Cornut
 // Developed by Omar Cornut and every direct or indirect contributors to the GitHub.
@@ -52,7 +53,7 @@ DOCUMENTATION
   - HOW TO UPDATE TO A NEWER VERSION OF DEAR IMGUI
   - GETTING STARTED WITH INTEGRATING DEAR IMGUI IN YOUR CODE/ENGINE
   - HOW A SIMPLE APPLICATION MAY LOOK LIKE
-  - HOW A SIMPLE RENDERING FUNCTION MAY LOOK LIKE
+  - USING CUSTOM BACKEND / CUSTOM ENGINE
 - API BREAKING CHANGES (read me when you update!)
 - FREQUENTLY ASKED QUESTIONS (FAQ)
   - Read all answers online: https://www.dearimgui.com/faq, or in docs/FAQ.md (with a Markdown viewer)
@@ -274,7 +275,8 @@ CODE
 
  HOW A SIMPLE APPLICATION MAY LOOK LIKE
  --------------------------------------
- EXHIBIT 1: USING THE EXAMPLE BACKENDS (= imgui_impl_XXX.cpp files from the backends/ folder).
+
+ USING THE EXAMPLE BACKENDS (= imgui_impl_XXX.cpp files from the backends/ folder).
  The sub-folders in examples/ contain examples applications following this structure.
 
      // Application init: create a dear imgui context, setup some options, load fonts
@@ -310,7 +312,27 @@ CODE
      ImGui_ImplWin32_Shutdown();
      ImGui::DestroyContext();
 
- EXHIBIT 2: IMPLEMENTING CUSTOM BACKEND / CUSTOM ENGINE
+ To decide whether to dispatch mouse/keyboard inputs to Dear ImGui to the rest of your application,
+ you should read the 'io.WantCaptureMouse', 'io.WantCaptureKeyboard' and 'io.WantTextInput' flags!
+ Please read the FAQ entry "How can I tell whether to dispatch mouse/keyboard to Dear ImGui or my application?" about this.
+
+
+USING CUSTOM BACKEND / CUSTOM ENGINE
+------------------------------------
+
+IMPLEMENTING YOUR PLATFORM BACKEND:
+ -> see https://github.com/ocornut/imgui/blob/master/docs/BACKENDS.md for basic instructions.
+ -> the Platform backends in impl_impl_XXX.cpp files contain many implementations.
+
+IMPLEMENTING YOUR RenderDrawData() function:
+ -> see https://github.com/ocornut/imgui/blob/master/docs/BACKENDS.md
+ -> the Renderer Backends in impl_impl_XXX.cpp files contain many implementations of a ImGui_ImplXXXX_RenderDrawData() function.
+
+IMPLEMENTING SUPPORT for ImGuiBackendFlags_RendererHasTextures:
+ -> see https://github.com/ocornut/imgui/blob/master/docs/BACKENDS.md
+ -> the Renderer Backends in impl_impl_XXX.cpp files contain many implementations of a ImGui_ImplXXXX_UpdateTexture() function.
+
+ Basic application/backend skeleton:
 
      // Application init: create a Dear ImGui context, setup some options, load fonts
      ImGui::CreateContext();
@@ -319,7 +341,7 @@ CODE
      io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // Enable keyboard controls
 
      // TODO: Load TTF/OTF fonts if you don't want to use the default font.
-     io.Fonts->AddFontFromFileTTF("NotoSans.ttf", 18.0f);
+     io.Fonts->AddFontFromFileTTF("NotoSans.ttf");
 
      // Application main loop
      while (true)
@@ -348,12 +370,12 @@ CODE
         ImGui::Render();
 
         // Update textures
-        for (ImTextureData* tex : ImGui::GetPlatformIO().Textures)
+        ImDrawData* draw_data = ImGui::GetDrawData();
+        for (ImTextureData* tex : *draw_data->Textures)
             if (tex->Status != ImTextureStatus_OK)
                 MyImGuiBackend_UpdateTexture(tex);
 
         // Render dear imgui contents, swap buffers
-        ImDrawData* draw_data = ImGui::GetDrawData();
         MyImGuiBackend_RenderDrawData(draw_data);
         SwapBuffers();
      }
@@ -361,85 +383,6 @@ CODE
      // Shutdown
      ImGui::DestroyContext();
 
- To decide whether to dispatch mouse/keyboard inputs to Dear ImGui to the rest of your application,
- you should read the 'io.WantCaptureMouse', 'io.WantCaptureKeyboard' and 'io.WantTextInput' flags!
- Please read the FAQ entry "How can I tell whether to dispatch mouse/keyboard to Dear ImGui or my application?" about this.
-
- HOW A SIMPLE RENDERING FUNCTION MAY LOOK LIKE
- ---------------------------------------------
- The backends in impl_impl_XXX.cpp files contain many working implementations of a rendering function.
-
-    void MyImGuiBackend_UpdateTexture(ImTextureData* tex)
-    {
-        if (tex->Status == ImTextureStatus_WantCreate)
-        {
-            // create texture based on tex->Width/Height/Pixels
-            // call tex->SetTexID() to specify backend-specific identifiers
-            // tex->Status = ImTextureStatus_OK;
-        }
-        if (tex->Status == ImTextureStatus_WantUpdates)
-        {
-            // update texture blocks based on tex->UpdateRect
-            // tex->Status = ImTextureStatus_OK;
-        }
-        if (tex->Status == ImTextureStatus_WantDestroy)
-        {
-            // destroy texture
-            // call tex->SetTexID(ImTextureID_Invalid)
-            // tex->Status = ImTextureStatus_Destroyed;
-        }
-    }
-
-    void MyImGuiBackend_RenderDrawData(ImDrawData* draw_data)
-    {
-       // TODO: Setup render state: alpha-blending enabled, no face culling, no depth testing, scissor enabled
-       // TODO: Setup texture sampling state: sample with bilinear filtering (NOT point/nearest filtering). Use 'io.Fonts->Flags |= ImFontAtlasFlags_NoBakedLines;' to allow point/nearest filtering.
-       // TODO: Setup viewport covering draw_data->DisplayPos to draw_data->DisplayPos + draw_data->DisplaySize
-       // TODO: Setup orthographic projection matrix cover draw_data->DisplayPos to draw_data->DisplayPos + draw_data->DisplaySize
-       // TODO: Setup shader: vertex { float2 pos, float2 uv, u32 color }, fragment shader sample color from 1 texture, multiply by vertex color.
-       ImVec2 clip_off = draw_data->DisplayPos;
-       for (int n = 0; n < draw_data->CmdListsCount; n++)
-       {
-          const ImDrawList* cmd_list = draw_data->CmdLists[n];
-          const ImDrawVert* vtx_buffer = cmd_list->VtxBuffer.Data;  // vertex buffer generated by Dear ImGui
-          const ImDrawIdx* idx_buffer = cmd_list->IdxBuffer.Data;   // index buffer generated by Dear ImGui
-          for (int cmd_i = 0; cmd_i < cmd_list->CmdBuffer.Size; cmd_i++)
-          {
-             const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[cmd_i];
-             if (pcmd->UserCallback)
-             {
-                 pcmd->UserCallback(cmd_list, pcmd);
-             }
-             else
-             {
-                 // Project scissor/clipping rectangles into framebuffer space
-                 ImVec2 clip_min(pcmd->ClipRect.x - clip_off.x, pcmd->ClipRect.y - clip_off.y);
-                 ImVec2 clip_max(pcmd->ClipRect.z - clip_off.x, pcmd->ClipRect.w - clip_off.y);
-                 if (clip_max.x <= clip_min.x || clip_max.y <= clip_min.y)
-                     continue;
-
-                 // We are using scissoring to clip some objects. All low-level graphics API should support it.
-                 // - If your engine doesn't support scissoring yet, you may ignore this at first. You will get some small glitches
-                 //   (some elements visible outside their bounds) but you can fix that once everything else works!
-                 // - Clipping coordinates are provided in imgui coordinates space:
-                 //   - For a given viewport, draw_data->DisplayPos == viewport->Pos and draw_data->DisplaySize == viewport->Size
-                 //   - In a single viewport application, draw_data->DisplayPos == (0,0) and draw_data->DisplaySize == io.DisplaySize, but always use GetMainViewport()->Pos/Size instead of hardcoding those values.
-                 //   - In the interest of supporting multi-viewport applications (see 'docking' branch on github),
-                 //     always subtract draw_data->DisplayPos from clipping bounds to convert them to your viewport space.
-                 // - Note that pcmd->ClipRect contains Min+Max bounds. Some graphics API may use Min+Max, other may use Min+Size (size being Max-Min)
-                 MyEngineSetScissor(clip_min.x, clip_min.y, clip_max.x, clip_max.y);
-
-                 // The texture for the draw call is specified by pcmd->GetTexID().
-                 // The vast majority of draw calls will use the Dear ImGui texture atlas, which value you have set yourself during initialization.
-                 MyEngineBindTexture((MyTexture*)pcmd->GetTexID());
-
-                 // Render 'pcmd->ElemCount/3' indexed triangles.
-                 // By default the indices ImDrawIdx are 16-bit, you can change them to 32-bit in imconfig.h if your engine doesn't support 16-bit indices.
-                 MyEngineDrawIndexedTriangles(pcmd->ElemCount, sizeof(ImDrawIdx) == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT, idx_buffer + pcmd->IdxOffset, vtx_buffer, pcmd->VtxOffset);
-             }
-          }
-       }
-    }
 
 
  API BREAKING CHANGES
@@ -457,7 +400,15 @@ CODE
                           - likewise io.MousePos and GetMousePos() will use OS coordinates.
                             If you query mouse positions to interact with non-imgui coordinates you will need to offset them, e.g. subtract GetWindowViewport()->Pos.
 
- - 2025/06/11 (1.92.0) - Renamed/moved ImGuiConfigFlags_DpiEnableScaleFonts -> bool io.ConfigDpiScaleFonts.
+ - 2025/06/25 (1.92.0) - layout: commented out legacy ErrorCheckUsingSetCursorPosToExtendParentBoundaries() fallback obsoleted in 1.89 (August 2022) which allowed a SetCursorPos()/SetCursorScreenPos() call WITHOUT AN ITEM
+                         to extend parent window/cell boundaries. Replaced with assert/tooltip that would already happens if previously using IMGUI_DISABLE_OBSOLETE_FUNCTIONS. (#5548, #4510, #3355, #1760, #1490, #4152, #150)
+                         - Incorrect way to make a window content size 200x200:
+                              Begin(...) + SetCursorScreenPos(GetCursorScreenPos() + ImVec2(200,200)) + End();
+                         - Correct ways to make a window content size 200x200:
+                              Begin(...) + SetCursorScreenPos(GetCursorScreenPos() + ImVec2(200,200)) + Dummy(ImVec2(0,0)) + End();
+                              Begin(...) + Dummy(ImVec2(200,200)) + End();
+                         - TL;DR; if the assert triggers, you can add a Dummy({0,0}) call to validate extending parent boundaries.
+>- 2025/06/11 (1.92.0) - Renamed/moved ImGuiConfigFlags_DpiEnableScaleFonts -> bool io.ConfigDpiScaleFonts.
                        - Renamed/moved ImGuiConfigFlags_DpiEnableScaleViewports -> bool io.ConfigDpiScaleViewports. **Neither of those flags are very useful in current code. They will be useful once we merge font changes.**
  - 2025/06/11 (1.92.0) - THIS VERSION CONTAINS THE LARGEST AMOUNT OF BREAKING CHANGES SINCE 2015! I TRIED REALLY HARD TO KEEP THEM TO A MINIMUM, REDUCE THE AMOUNT OF INTERFERENCES, BUT INEVITABLY SOME USERS WILL BE AFFECTED.
                          IN ORDER TO HELP US IMPROVE THE TRANSITION PROCESS, INCL. DOCUMENTATION AND COMMENTS, PLEASE REPORT **ANY** DOUBT, CONFUSION, QUESTIONS, FEEDBACK TO: https://github.com/ocornut/imgui/issues/
@@ -469,19 +420,35 @@ CODE
                          - With a legacy backend (< 1.92): Instead of setting io.FontGlobalScale = 1.0f/N -> set ImFontCfg::RasterizerDensity = N. This already worked before, but is now pretty much required.
                          - With a new backend (1.92+): This should be all automatic. FramebufferScale is automatically used to set current font RasterizerDensity. FramebufferScale is a per-viewport property provided by backend through the Platform_GetWindowFramebufferScale() handler in 'docking' branch.
                        - Fonts: **IMPORTANT** on Font Sizing: Before 1.92, fonts were of a single size. They can now be dynamically sized.
-                         - PushFont() API now has an optional size parameter. PushFontSize() was also added.
-                         - Before 1.92: ImGui::PushFont() always used font "default" size specified in AddFont() call.
-                         - Since  1.92: ImGui::PushFont() preserve the current font size which is a shared value.
-                         - To use old behavior: (A) use 'ImGui::PushFont(font, font->LegacySize)' at call site (preferred). (B) Set 'ImFontConfig::Flags |= ImFontFlags_DefaultToLegacySize' in AddFont() call (not desirable as it requires e.g. third-party code to be aware of it).
+                         - PushFont() API now has a REQUIRED size parameter.
+                         - Before 1.92: PushFont() always used font "default" size specified in AddFont() call. It is equivalent to calling PushFont(font, font->LegacySize).
+                         - Since  1.92: PushFont(font, 0.0f) preserve the current font size which is a shared value.
+                         - To use old behavior: use 'ImGui::PushFont(font, font->LegacySize)' at call site.
+                         - Kept inline single parameter function. Will obsolete.
+                       - Fonts: **IMPORTANT** on Font Merging:
+                         - When searching for a glyph in multiple merged fonts: font inputs are now scanned in orderfor the first font input which the desired glyph. This is technically a different behavior than before!
+                         - e.g. If you are merging fonts you may have glyphs that you expected to load from Font Source 2 which exists in Font Source 1. After the update and when using a new backend, those glyphs may now loaded from Font Source 1!
+                         - You can use `ImFontConfig::GlyphExcludeRanges[]` to specify ranges to ignore in given Input:
+                             // Add Font Source 1 but ignore ICON_MIN_FA..ICON_MAX_FA range
+                             static ImWchar exclude_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+                             ImFontConfig cfg1;
+                             cfg1.GlyphExcludeRanges = exclude_ranges;
+                             io.Fonts->AddFontFromFileTTF("segoeui.ttf", 0.0f, &cfg1);
+                             // Add Font Source 2, which expects to use the range above
+                             ImFontConfig cfg2;
+                             cfg2.MergeMode = true;
+                             io.Fonts->AddFontFromFileTTF("FontAwesome4.ttf", 0.0f, &cfg2);
+                         - You can use `Metrics/Debugger->Fonts->Font->Input Glyphs Overlap Detection Tool` to see list of glyphs available in multiple font sources. This can facilitate unde
                        - Fonts: ImFont::FontSize was removed and does not make sense anymore. ImFont::LegacySize is the size passed to AddFont().
+                       - Fonts: Removed support for PushFont(NULL) which was a shortcut for "default font".
                        - Fonts: Renamed/moved 'io.FontGlobalScale' to 'style.FontScaleMain'.
                        - Textures: all API functions taking a 'ImTextureID' parameter are now taking a 'ImTextureRef'. Affected functions are: ImGui::Image(), ImGui::ImageWithBg(), ImGui::ImageButton(), ImDrawList::AddImage(), ImDrawList::AddImageQuad(), ImDrawList::AddImageRounded().
                        - Fonts: obsoleted ImFontAtlas::GetTexDataAsRGBA32(), GetTexDataAsAlpha8(), Build(), SetTexID(), IsBuilt() functions. The new protocol for backends to handle textures doesn't need them. Kept redirection functions (will obsolete).
                        - Fonts: ImFontConfig::OversampleH/OversampleV default to automatic (== 0) since v1.91.8. It is quite important you keep it automatic until we decide if we want to provide a way to express finer policy, otherwise you will likely waste texture space when using large glyphs. Note that the imgui_freetype backend doesn't use and does not need oversampling.
                        - Fonts: specifying glyph ranges is now unnecessary. The value of ImFontConfig::GlyphRanges[] is only useful for legacy backends. All GetGlyphRangesXXXX() functions are now marked obsolete: GetGlyphRangesDefault(), GetGlyphRangesGreek(), GetGlyphRangesKorean(), GetGlyphRangesJapanese(), GetGlyphRangesChineseSimplifiedCommon(), GetGlyphRangesChineseFull(), GetGlyphRangesCyrillic(), GetGlyphRangesThai(), GetGlyphRangesVietnamese().
                        - Fonts: removed ImFontAtlas::TexDesiredWidth to enforce a texture width. (#327)
-                       - Fonts: if you create and manage ImFontAtlas instances yourself (instead of relying on ImGuiContext to create one, you'll need to set the atlas->RendererHasTextures field and call ImFontAtlasUpdateNewFrame() yourself. An assert will trigger if you don't.
-                       - Fonts: obsolete ImGui::SetWindowFontScale() which is not useful anymore. Prefer using 'PushFontSize(style.FontSizeBase * factor)' or to manipulate other scaling factors.
+                       - Fonts: if you create and manage ImFontAtlas instances yourself (instead of relying on ImGuiContext to create one, you'll need to call ImFontAtlasUpdateNewFrame() yourself. An assert will trigger if you don't.
+                       - Fonts: obsolete ImGui::SetWindowFontScale() which is not useful anymore. Prefer using 'PushFont(NULL, style.FontSizeBase * factor)' or to manipulate other scaling factors.
                        - Fonts: obsoleted ImFont::Scale which is not useful anymore.
                        - Fonts: generally reworked Internals of ImFontAtlas and ImFont. While in theory a vast majority of users shouldn't be affected, some use cases or extensions might be. Among other things:
                           - ImDrawCmd::TextureId has been changed to ImDrawCmd::TexRef.
@@ -3991,7 +3958,7 @@ void ImGui::RenderMouseCursor(ImVec2 base_pos, float base_scale, ImGuiMouseCurso
     ImGuiContext& g = *GImGui;
     if (mouse_cursor <= ImGuiMouseCursor_None || mouse_cursor >= ImGuiMouseCursor_COUNT) // We intentionally accept out of bound values.
         mouse_cursor = ImGuiMouseCursor_Arrow;
-    ImFontAtlas* font_atlas = g.DrawListSharedData.Font->ContainerAtlas;
+    ImFontAtlas* font_atlas = g.DrawListSharedData.FontAtlas;
     for (ImGuiViewportP* viewport : g.Viewports)
     {
         // We scale cursor with current viewport/monitor, however Windows 10 for its own hardware cursor seems to be using a different scale factor.
@@ -4567,12 +4534,15 @@ static void SetCurrentWindow(ImGuiWindow* window)
     g.CurrentTable = window && window->DC.CurrentTableIdx != -1 ? g.Tables.GetByIndex(window->DC.CurrentTableIdx) : NULL;
     if (window)
     {
+        bool backup_skip_items = window->SkipItems;
+        window->SkipItems = false;
         if (g.IO.BackendFlags & ImGuiBackendFlags_RendererHasTextures)
         {
             ImGuiViewport* viewport = window->Viewport;
             g.FontRasterizerDensity = (viewport->FramebufferScale.x != 0.0f) ? viewport->FramebufferScale.x : g.IO.DisplayFramebufferScale.x; // == SetFontRasterizerDensity()
         }
         ImGui::UpdateCurrentFontSize(0.0f);
+        window->SkipItems = backup_skip_items;
         ImGui::NavUpdateCurrentWindowIsScrollPushableX();
     }
 }
@@ -5467,13 +5437,16 @@ static void ImGui::UpdateTexturesNewFrame()
     {
         if (atlas->OwnerContext == &g)
         {
-            atlas->RendererHasTextures = has_textures;
-            ImFontAtlasUpdateNewFrame(atlas, g.FrameCount);
+            ImFontAtlasUpdateNewFrame(atlas, g.FrameCount, has_textures);
         }
         else
         {
-            IM_ASSERT(atlas->Builder != NULL && atlas->Builder->FrameCount != -1 && "If you manage font atlases yourself you need to call ImFontAtlasUpdateNewFrame() on it.");
-            IM_ASSERT(atlas->RendererHasTextures == has_textures && "If you manage font atlases yourself make sure atlas->RendererHasTextures is set consistently with all contexts using it.");
+            // (1) If you manage font atlases yourself, e.g. create a ImFontAtlas yourself you need to call ImFontAtlasUpdateNewFrame() on it.
+            // Otherwise, calling ImGui::CreateContext() without parameter will create an atlas owned by the context.
+            // (2) If you have multiple font atlases, make sure the 'atlas->RendererHasTextures' as specified in the ImFontAtlasUpdateNewFrame() call matches for that.
+            // (3) If you have multiple imgui contexts, they also need to have a matching value for ImGuiBackendFlags_RendererHasTextures.
+            IM_ASSERT(atlas->Builder != NULL && atlas->Builder->FrameCount != -1);
+            IM_ASSERT(atlas->RendererHasTextures == has_textures);
         }
     }
 }
@@ -6897,9 +6870,9 @@ static ImVec2 CalcWindowAutoFitSize(ImGuiWindow* window, const ImVec2& size_cont
         // FIXME: CalcWindowAutoFitSize() doesn't take into account that only one axis may be auto-fit when calculating scrollbars,
         // we may need to compute/store three variants of size_auto_fit, for x/y/xy.
         // Here we implement a workaround for child windows only, but a full solution would apply to normal windows as well:
-        if ((window->ChildFlags & ImGuiChildFlags_ResizeX) && !(window->ChildFlags & ImGuiChildFlags_ResizeY))
+        if ((window->ChildFlags & ImGuiChildFlags_ResizeX) && !(window->ChildFlags & (ImGuiChildFlags_ResizeY | ImGuiChildFlags_AutoResizeY)))
             size_auto_fit.y = window->SizeFull.y;
-        else if (!(window->ChildFlags & ImGuiChildFlags_ResizeX) && (window->ChildFlags & ImGuiChildFlags_ResizeY))
+        else if ((window->ChildFlags & ImGuiChildFlags_ResizeY) && !(window->ChildFlags & (ImGuiChildFlags_ResizeX | ImGuiChildFlags_AutoResizeX)))
             size_auto_fit.x = window->SizeFull.x;
 
         // When the window cannot fit all contents (either because of constraints, either because screen is too small),
@@ -7019,7 +6992,9 @@ static int ImGui::UpdateWindowManualResize(ImGuiWindow* window, const ImVec2& si
     ImGuiContext& g = *GImGui;
     ImGuiWindowFlags flags = window->Flags;
 
-    if ((flags & ImGuiWindowFlags_NoResize) || (flags & ImGuiWindowFlags_AlwaysAutoResize) || window->AutoFitFramesX > 0 || window->AutoFitFramesY > 0)
+    if ((flags & ImGuiWindowFlags_NoResize) || window->AutoFitFramesX > 0 || window->AutoFitFramesY > 0)
+        return false;
+    if ((flags & ImGuiWindowFlags_AlwaysAutoResize) && (window->ChildFlags & (ImGuiChildFlags_ResizeX | ImGuiChildFlags_ResizeY)) == 0)
         return false;
     if (window->WasActive == false) // Early out to avoid running this code for e.g. a hidden implicit/fallback Debug window.
         return false;
@@ -7482,8 +7457,12 @@ void ImGui::RenderWindowTitleBarContents(ImGuiWindow* window, const ImRect& titl
 
     // Close button
     if (has_close_button)
+    {
+        g.CurrentItemFlags |= ImGuiItemFlags_NoFocus;
         if (CloseButton(window->GetID("#CLOSE"), close_button_pos))
             *p_open = false;
+        g.CurrentItemFlags &= ~ImGuiItemFlags_NoFocus;
+    }
 
     window->DC.NavLayerCurrent = ImGuiNavLayer_Main;
     g.CurrentItemFlags = item_flags_backup;
@@ -9112,7 +9091,9 @@ ImFontBaked* ImGui::GetFontBaked()
     return GImGui->FontBaked;
 }
 
-// Get current font size (= height in pixels) of current font, with external scale factors applied. Use ImGui::GetStyle().FontSizeBase to get value before external scale factors.
+// Get current font size (= height in pixels) of current font, with global scale factors applied.
+// - Use style.FontSizeBase to get value before global scale factors.
+// - recap: ImGui::GetFontSize() == style.FontSizeBase * (style.FontScaleMain * style.FontScaleDpi * other_scaling_factors)
 float ImGui::GetFontSize()
 {
     return GImGui->FontSize;
@@ -9123,7 +9104,7 @@ ImVec2 ImGui::GetFontTexUvWhitePixel()
     return GImGui->DrawListSharedData.TexUvWhitePixel;
 }
 
-// Prefer using PushFontSize(style.FontSizeBase * factor), or use style.FontScaleMain to scale all windows.
+// Prefer using PushFont(NULL, style.FontSizeBase * factor), or use style.FontScaleMain to scale all windows.
 #ifndef IMGUI_DISABLE_OBSOLETE_FUNCTIONS
 void ImGui::SetWindowFontScale(float scale)
 {
@@ -9292,6 +9273,19 @@ bool ImGui::IsRectVisible(const ImVec2& rect_min, const ImVec2& rect_max)
 // Most of the relevant font logic is in imgui_draw.cpp.
 // Those are high-level support functions.
 //-----------------------------------------------------------------------------
+// - UpdateFontsNewFrame() [Internal]
+// - UpdateFontsEndFrame() [Internal]
+// - GetDefaultFont() [Internal]
+// - RegisterUserTexture() [Internal]
+// - UnregisterUserTexture() [Internal]
+// - RegisterFontAtlas() [Internal]
+// - UnregisterFontAtlas() [Internal]
+// - SetCurrentFont() [Internal]
+// - UpdateCurrentFontSize() [Internal]
+// - SetFontRasterizerDensity() [Internal]
+// - PushFont()
+// - PopFont()
+//-----------------------------------------------------------------------------
 
 void ImGui::UpdateFontsNewFrame()
 {
@@ -9388,10 +9382,12 @@ void ImGui::SetCurrentFont(ImFont* font, float font_size_before_scaling, float f
 #ifndef IMGUI_DISABLE_OBSOLETE_FUNCTIONS
         IM_ASSERT(font->Scale > 0.0f);
 #endif
-        g.DrawListSharedData.Font = g.Font;
-        ImFontAtlasUpdateDrawListsSharedData(g.Font->ContainerAtlas);
+        ImFontAtlas* atlas = font->ContainerAtlas;
+        g.DrawListSharedData.FontAtlas = atlas;
+        g.DrawListSharedData.Font = font;
+        ImFontAtlasUpdateDrawListsSharedData(atlas);
         if (g.CurrentWindow != NULL)
-            g.CurrentWindow->DrawList->_SetTexture(font->ContainerAtlas->TexRef);
+            g.CurrentWindow->DrawList->_SetTexture(atlas->TexRef);
     }
 }
 
@@ -9404,20 +9400,18 @@ void ImGui::UpdateCurrentFontSize(float restore_font_size_after_scaling)
 
     // Early out to avoid hidden window keeping bakes referenced and out of GC reach.
     // However this would leave a pretty subtle and damning error surface area if g.FontBaked was mismatching, so for now we null it.
+    // FIXME: perhaps g.FontSize should be updated?
     if (window != NULL && window->SkipItems)
         if (g.CurrentTable == NULL || g.CurrentTable->CurrentColumn != -1) // See 8465#issuecomment-2951509561. Ideally the SkipItems=true in tables would be amended with extra data.
-        {
-            g.FontBaked = NULL;
             return;
-        }
 
-    // Restoring is pretty much only used by PopFont()/PopFontSize()
+    // Restoring is pretty much only used by PopFont()
     float final_size = (restore_font_size_after_scaling > 0.0f) ? restore_font_size_after_scaling : 0.0f;
     if (final_size == 0.0f)
     {
         final_size = g.FontSizeBase;
 
-        // External scale factors
+        // Global scale factors
         final_size *= g.Style.FontScaleMain;    // Main global scale factor
         final_size *= g.Style.FontScaleDpi;     // Per-monitor/viewport DPI scale factor, automatically updated when io.ConfigDpiScaleFonts is enabled.
 
@@ -9459,22 +9453,18 @@ void ImGui::SetFontRasterizerDensity(float rasterizer_density)
     UpdateCurrentFontSize(0.0f);
 }
 
-// If you want to scale an existing font size:
-// - Use e.g. PushFontSize(style.FontSizeBase * factor) (= value before external scale factors applied).
-// - Do NOT use PushFontSize(GetFontSize() * factor) (= value after external scale factors applied).
+// If you want to scale an existing font size! Read comments in imgui.h!
 void ImGui::PushFont(ImFont* font, float font_size_base)
 {
     ImGuiContext& g = *GImGui;
+    if (font == NULL) // Before 1.92 (June 2025), PushFont(NULL) == PushFont(GetDefaultFont())
+        font = g.Font;
+    IM_ASSERT(font != NULL);
+    IM_ASSERT(font_size_base >= 0.0f);
+
     g.FontStack.push_back({ g.Font, g.FontSizeBase, g.FontSize });
-    if (font == NULL)
-        font = GetDefaultFont();
-    if (font_size_base <= 0.0f)
-    {
-        if (font->Flags & ImFontFlags_DefaultToLegacySize)
-            font_size_base = font->LegacySize;       // Legacy: use AddFont() specified font size. Same as doing PushFont(font, font->LegacySize)
-        else
-            font_size_base = g.FontSizeBase; // Keep current font size
-    }
+    if (font_size_base == 0.0f)
+        font_size_base = g.FontSizeBase; // Keep current font size
     SetCurrentFont(font, font_size_base, 0.0f);
 }
 
@@ -9489,17 +9479,6 @@ void  ImGui::PopFont()
     ImFontStackData* font_stack_data = &g.FontStack.back();
     SetCurrentFont(font_stack_data->Font, font_stack_data->FontSizeBeforeScaling, font_stack_data->FontSizeAfterScaling);
     g.FontStack.pop_back();
-}
-
-void    ImGui::PushFontSize(float font_size_base)
-{
-    ImGuiContext& g = *GImGui;
-    PushFont(g.Font, font_size_base);
-}
-
-void    ImGui::PopFontSize()
-{
-    PopFont();
 }
 
 //-----------------------------------------------------------------------------
@@ -11163,36 +11142,44 @@ bool ImGui::DebugCheckVersionAndDataLayout(const char* version, size_t sz_io, si
     return !error;
 }
 
-// Until 1.89 (IMGUI_VERSION_NUM < 18814) it was legal to use SetCursorPos() to extend the boundary of a parent (e.g. window or table cell)
-// This is causing issues and ambiguity and we need to retire that.
-// See https://github.com/ocornut/imgui/issues/5548 for more details.
-// [Scenario 1]
+// Until 1.89 (August 2022, IMGUI_VERSION_NUM < 18814) it was legal to use SetCursorPos()/SetCursorScreenPos()
+// to extend contents size of our parent container (e.g. window contents size, which is used for auto-resizing
+// windows, table column contents size used for auto-resizing columns, group size).
+// This was causing issues and ambiguities and we needed to retire that.
+// From 1.89, extending contents size boundaries REQUIRES AN ITEM TO BE SUBMITTED.
+//
 //  Previously this would make the window content size ~200x200:
-//    Begin(...) + SetCursorScreenPos(GetCursorScreenPos() + ImVec2(200,200)) + End();  // NOT OK
+//    Begin(...) + SetCursorScreenPos(GetCursorScreenPos() + ImVec2(200,200)) + End();                      // NOT OK ANYMORE
 //  Instead, please submit an item:
 //    Begin(...) + SetCursorScreenPos(GetCursorScreenPos() + ImVec2(200,200)) + Dummy(ImVec2(0,0)) + End(); // OK
 //  Alternative:
 //    Begin(...) + Dummy(ImVec2(200,200)) + End(); // OK
-// [Scenario 2]
-//  For reference this is one of the issue what we aim to fix with this change:
-//    BeginGroup() + SomeItem("foobar") + SetCursorScreenPos(GetCursorScreenPos()) + EndGroup()
-//  The previous logic made SetCursorScreenPos(GetCursorScreenPos()) have a side-effect! It would erroneously incorporate ItemSpacing.y after the item into content size, making the group taller!
-//  While this code is a little twisted, no-one would expect SetXXX(GetXXX()) to have a side-effect. Using vertical alignment patterns could trigger this issue.
+//
+// The assert below detects when the _last_ call in a window was a SetCursorPos() not followed by an Item,
+// and with a position that would grow the parent contents size.
+//
+// Advanced:
+// - For reference, old logic was causing issues because it meant that SetCursorScreenPos(GetCursorScreenPos())
+//   had a side-effect on layout! In particular this caused problem to compute group boundaries.
+//   e.g. BeginGroup() + SomeItem() + SetCursorScreenPos(GetCursorScreenPos()) + EndGroup() would cause the
+//   group to be taller because auto-sizing generally adds padding on bottom and right side.
+// - While this code is a little twisted, no-one would expect SetXXX(GetXXX()) to have a side-effect.
+//   Using vertical alignment patterns would frequently trigger this sorts of issue.
+// - See https://github.com/ocornut/imgui/issues/5548 for more details.
 void ImGui::ErrorCheckUsingSetCursorPosToExtendParentBoundaries()
 {
     ImGuiContext& g = *GImGui;
     ImGuiWindow* window = g.CurrentWindow;
     IM_ASSERT(window->DC.IsSetPos);
     window->DC.IsSetPos = false;
-#ifdef IMGUI_DISABLE_OBSOLETE_FUNCTIONS
     if (window->DC.CursorPos.x <= window->DC.CursorMaxPos.x && window->DC.CursorPos.y <= window->DC.CursorMaxPos.y)
         return;
     if (window->SkipItems)
         return;
-    IM_ASSERT(0 && "Code uses SetCursorPos()/SetCursorScreenPos() to extend window/parent boundaries. Please submit an item e.g. Dummy() to validate extent.");
-#else
-    window->DC.CursorMaxPos = ImMax(window->DC.CursorMaxPos, window->DC.CursorPos);
-#endif
+    IM_ASSERT_USER_ERROR(0, "Code uses SetCursorPos()/SetCursorScreenPos() to extend window/parent boundaries.\nPlease submit an item e.g. Dummy() afterwards in order to grow window/parent boundaries.");
+
+    // For reference, the old behavior was essentially:
+    //window->DC.CursorMaxPos = ImMax(window->DC.CursorMaxPos, window->DC.CursorPos);
 }
 
 static void ImGui::ErrorCheckNewFrameSanityChecks()
@@ -17585,7 +17572,7 @@ static void ImGui::DockContextPruneUnusedSettingsNodes(ImGuiContext* ctx)
     {
         ImGuiDockNodeSettings* settings = &dc->NodesSettings[settings_n];
         ImGuiDockContextPruneNodeData* data = pool.GetByKey(settings->ID);
-        if (data->CountWindows > 1)
+        if (data == NULL || data->CountWindows > 1)
             continue;
         ImGuiDockContextPruneNodeData* data_root = (data->RootId == settings->ID) ? data : pool.GetByKey(data->RootId);
 
@@ -21547,7 +21534,13 @@ void ImGui::ShowFontAtlas(ImFontAtlas* atlas)
     DragFloat("FontScaleDpi", &style.FontScaleDpi, 0.02f, 0.5f, 5.0f);
     //SetItemTooltip("When io.ConfigDpiScaleFonts is set, this value is automatically overwritten.");
     //EndDisabled();
-    BulletText("Warning: Font scaling will NOT be smooth, because\nImGuiBackendFlags_RendererHasTextures is not set!");
+    if ((io.BackendFlags & ImGuiBackendFlags_RendererHasTextures) == 0)
+    {
+        BulletText("Warning: Font scaling will NOT be smooth, because\nImGuiBackendFlags_RendererHasTextures is not set!");
+        BulletText("For instructions, see:");
+        SameLine();
+        TextLinkOpenURL("docs/BACKENDS.md", "https://github.com/ocornut/imgui/blob/master/docs/BACKENDS.md");
+    }
     BulletText("Load a nice font for better results!");
     BulletText("Please submit feedback:");
     SameLine(); TextLinkOpenURL("#8465", "https://github.com/ocornut/imgui/issues/8465");
@@ -22696,7 +22689,7 @@ void ImGui::DebugNodeFont(ImFont* font)
     Indent();
     if (cfg->ShowFontPreview)
     {
-        PushFont(font);
+        PushFont(font, 0.0f);
         Text("The quick brown fox jumps over the lazy dog");
         PopFont();
     }
@@ -22762,7 +22755,8 @@ void ImGui::DebugNodeFont(ImFont* font)
     }
     if (font->Sources.Size > 1 && TreeNode("Input Glyphs Overlap Detection Tool"))
     {
-        TextWrapped("- First Input that contains the glyph is used.\n- Use ImFontConfig::GlyphExcludeRanges[] to specify ranges to ignore glyph in given Input.\n- This tool doesn't cache results and is slow, don't keep it open!");
+        TextWrapped("- First Input that contains the glyph is used.\n"
+            "- Use ImFontConfig::GlyphExcludeRanges[] to specify ranges to ignore glyph in given Input.\n- Prefer using a small number of ranges as the list is scanned every time a new glyph is loaded,\n  - e.g. GlyphExcludeRanges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };\n- This tool doesn't cache results and is slow, don't keep it open!");
         if (BeginTable("table", 2))
         {
             for (unsigned int c = 0; c < 0x10000; c++)
@@ -22799,7 +22793,7 @@ void ImGui::DebugNodeFont(ImFont* font)
         if (baked->ContainerFont != font)
             continue;
         PushID(baked_n);
-        if (TreeNode("Glyphs", "Baked at { %.2fpx, d.%.1f }: %d glyphs%s", baked->Size, baked->RasterizerDensity, baked->Glyphs.Size, (baked->LastUsedFrame < atlas->Builder->FrameCount - 1) ? " *Unused*" : ""))
+        if (TreeNode("Glyphs", "Baked at { %.2fpx, d.%.2f }: %d glyphs%s", baked->Size, baked->RasterizerDensity, baked->Glyphs.Size, (baked->LastUsedFrame < atlas->Builder->FrameCount - 1) ? " *Unused*" : ""))
         {
             if (SmallButton("Load all"))
                 for (unsigned int base = 0; base <= IM_UNICODE_CODEPOINT_MAX; base++)

@@ -29,6 +29,7 @@
 // CHANGELOG
 // (minor and older changes stripped away, please see git history for details)
 //  2025-XX-XX: Platform: Added support for multiple windows via the ImGuiPlatformIO interface.
+//  2025-06-27: Vulkan: Fixed validation errors during texture upload/update by aligning upload size to 'nonCoherentAtomSize'. (#8743, #8744)
 //  2025-06-11: Vulkan: Added support for ImGuiBackendFlags_RendererHasTextures, for dynamic font atlas. Removed ImGui_ImplVulkan_CreateFontsTexture() and ImGui_ImplVulkan_DestroyFontsTexture().
 //  2025-05-07: Vulkan: Fixed validation errors during window detach in multi-viewport mode. (#8600, #8176)
 //  2025-05-07: Vulkan: Load dynamic rendering functions using vkGetDeviceProcAddr() + try both non-KHR and KHR versions. (#8600, #8326, #8365)
@@ -266,6 +267,7 @@ struct ImGui_ImplVulkan_Data
 {
     ImGui_ImplVulkan_InitInfo   VulkanInitInfo;
     VkDeviceSize                BufferMemoryAlignment;
+    VkDeviceSize                NonCoherentAtomSize;
     VkPipelineCreateFlags       PipelineCreateFlags;
     VkDescriptorSetLayout       DescriptorSetLayout;
     VkPipelineLayout            PipelineLayout;
@@ -287,6 +289,7 @@ struct ImGui_ImplVulkan_Data
     {
         memset((void*)this, 0, sizeof(*this));
         BufferMemoryAlignment = 256;
+        NonCoherentAtomSize = 64;
     }
 };
 
@@ -780,7 +783,7 @@ void ImGui_ImplVulkan_UpdateTexture(ImTextureData* tex)
 
         VkBuffer upload_buffer;
         VkDeviceSize upload_pitch = upload_w * tex->BytesPerPixel;
-        VkDeviceSize upload_size = upload_h * upload_pitch;
+        VkDeviceSize upload_size = AlignBufferSize(upload_h * upload_pitch, bd->NonCoherentAtomSize);
         {
             VkBufferCreateInfo buffer_info = {};
             buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -1072,7 +1075,7 @@ bool ImGui_ImplVulkan_CreateDeviceObjects()
 
     if (v->DescriptorPoolSize != 0)
     {
-        IM_ASSERT(v->DescriptorPoolSize > IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE);
+        IM_ASSERT(v->DescriptorPoolSize >= IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE);
         VkDescriptorPoolSize pool_size = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, v->DescriptorPoolSize };
         VkDescriptorPoolCreateInfo pool_info = {};
         pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1256,6 +1259,11 @@ bool    ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo* info)
         IM_ASSERT(info->RenderPass != VK_NULL_HANDLE);
 
     bd->VulkanInitInfo = *info;
+
+    VkPhysicalDeviceProperties properties;
+    vkGetPhysicalDeviceProperties(info->PhysicalDevice, &properties);
+    bd->NonCoherentAtomSize = properties.limits.nonCoherentAtomSize;
+
 #ifdef IMGUI_IMPL_VULKAN_HAS_DYNAMIC_RENDERING
     ImGui_ImplVulkan_InitInfo* v = &bd->VulkanInitInfo;
     if (v->PipelineRenderingCreateInfo.pColorAttachmentFormats != NULL)
@@ -1267,7 +1275,8 @@ bool    ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo* info)
     }
 #endif
 
-    ImGui_ImplVulkan_CreateDeviceObjects();
+    if (!ImGui_ImplVulkan_CreateDeviceObjects())
+        IM_ASSERT(0 && "ImGui_ImplVulkan_CreateDeviceObjects() failed!"); // <- Can't be hit yet.
 
     // Our render function expect RendererUserData to be storing the window render buffer we need (for the main viewport we won't use ->Window)
     ImGuiViewport* main_viewport = ImGui::GetMainViewport();
@@ -1287,7 +1296,7 @@ void ImGui_ImplVulkan_Shutdown()
     // First destroy objects in all viewports
     ImGui_ImplVulkan_DestroyDeviceObjects();
 #ifdef IMGUI_IMPL_VULKAN_HAS_DYNAMIC_RENDERING
-    IM_FREE((void*)bd->VulkanInitInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats);
+    IM_FREE((void*)const_cast<VkFormat*>(bd->VulkanInitInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats));
 #endif
 
     // Manually delete main viewport render data in-case we haven't initialized for viewports
@@ -2146,7 +2155,7 @@ static void ImGui_ImplVulkan_SwapBuffers(ImGuiViewport* viewport, void*)
 void ImGui_ImplVulkan_InitMultiViewportSupport()
 {
     ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
-    if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+    if (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_PlatformHasViewports)
         IM_ASSERT(platform_io.Platform_CreateVkSurface != nullptr && "Platform needs to setup the CreateVkSurface handler.");
     platform_io.Renderer_CreateWindow = ImGui_ImplVulkan_CreateWindow;
     platform_io.Renderer_DestroyWindow = ImGui_ImplVulkan_DestroyWindow;
